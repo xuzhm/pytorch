@@ -2,6 +2,7 @@
 #include "torch/csrc/jit/operator.h"
 #include "torch/csrc/jit/custom_operator.h"
 #include "torch/csrc/autograd/variable.h"
+#include "torch/csrc/utils/functional.h"
 
 namespace torch { namespace jit {
 
@@ -129,8 +130,34 @@ RegisterOperators reg({
 });
 
 c10::optional<IValue> toIValue(const Value* v) {
-  if(v->node()->kind() != prim::Constant)
+  if (v->node()->kind() == prim::ListConstruct) {
+    std::vector<IValue> genericList;
+    for (auto input : v->node()->inputs()) {
+      if (auto elem = toIValue(input)) {
+        genericList.push_back(*elem);
+      } else {
+        // One of the list elements isn't constant.
+        return c10::nullopt;
+      }
+    }
+
+    // Specialize the list based on ListConstruct's return type
+    auto listType = v->node()->output()->type();
+    auto containedType = listType->containedTypes().at(0);
+    if (containedType == IntType::get()) {
+      return fmap(genericList, [](const IValue& v) { return v.toInt(); });
+    } else if (containedType == FloatType::get()) {
+      return fmap(genericList, [](const IValue& v) { return v.toDouble(); });
+    } else if (containedType->isSubtypeOf(DynamicType::get())) {
+      return fmap(genericList, [](const IValue& v) { return v.toTensor(); });
+    } else {
+      throw std::runtime_error("Tried to specialize list to unknown type");
+    }
+  }
+
+  if (v->node()->kind() != prim::Constant) {
     return c10::nullopt;
+  }
   // use implemenation of prim::Constant to compute the output IValue
   auto op = getOperation(v->node());
   Stack stack;

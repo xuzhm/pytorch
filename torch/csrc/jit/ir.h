@@ -808,6 +808,12 @@ public:
     const auto & block = *block_;
     return block.nodes();
   }
+  Node * param_node() {
+    return block_->param_node();
+  }
+  const Node * param_node() const {
+    return block_->param_node();
+  }
   Node * return_node() {
     return block_->return_node();
   }
